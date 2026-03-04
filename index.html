@@ -501,6 +501,17 @@ function calcResumoRecebimentos(lista){
     }
     return {aReceber:aReceber, recebido:recebido, atraso:atraso};
 }
+function calcResumoRecebimentosAte(lista, dataRef){
+    var aReceber=0, recebido=0, atraso=0;
+    for(var i=0;i<lista.length;i++){
+        var t=lista[i], valor=t.valor?parseFloat(t.valor):0, rec=valorRecebidoItem(t);
+        if(valor>0) aReceber+=valor;
+        if(rec>0) recebido+=rec;
+        var pend=Math.max(valor-rec,0);
+        if(t.prazoPagamento&&t.prazoPagamento<dataRef&&pend>0) atraso+=pend;
+    }
+    return {aReceber:aReceber, recebido:recebido, atraso:atraso};
+}
 function valorPagoItem(t){
     if(t&&t.valorPago!==null&&t.valorPago!==undefined&&t.valorPago!==''){
         var vp=parseFloat(t.valorPago);
@@ -859,18 +870,37 @@ function renderCalendario(){
 
 function renderTabelaRecebimentos(){
     var recView=document.getElementById('recebimentos-view');
-    var rL=todasDoMes().filter(filtraPorAba).sort(function(a,b){ return a.data.localeCompare(b.data); });
+    var inicioMes=anoAtual+'-'+p2(mesAtual+1)+'-01';
+    var fimMes=anoAtual+'-'+p2(mesAtual+1)+'-'+p2(new Date(anoAtual,mesAtual+1,0).getDate());
+    var rMes=tarefas.filter(function(t){
+        return t.categoria==='recebimento' && filtraPorAba(t) && t.data && t.data>=inicioMes && t.data<=fimMes;
+    });
+    var rAtrasos=tarefas.filter(function(t){
+        if(!(t.categoria==='recebimento' && filtraPorAba(t) && t.data && t.data<inicioMes)) return false;
+        if(!t.prazoPagamento || t.prazoPagamento>fimMes) return false;
+        var valor=t.valor?parseFloat(t.valor):0;
+        var recebido=valorRecebidoItem(t);
+        return Math.max(valor-recebido,0)>0;
+    });
+    var ids={}, rL=[];
+    for(var a=0;a<rMes.length;a++){
+        ids[String(rMes[a].id)]=true;
+        rL.push(rMes[a]);
+    }
+    for(var b=0;b<rAtrasos.length;b++){
+        var idk=String(rAtrasos[b].id);
+        if(!ids[idk]){ ids[idk]=true; rL.push(rAtrasos[b]); }
+    }
+    rL.sort(function(x,y){ return x.data.localeCompare(y.data); });
     if(rL.length===0){
         recView.innerHTML='<div class="mensagem-vazia"><p class="mensagem-vazia-text">Nenhum recebimento nesta aba</p><button class="btn btn-primary" onclick="abrirModalNovo(0)" style="margin-top:1rem;">Nova Tarefa</button></div>';
         return;
     }
     var linhas='';
-    var h=new Date();
-    var hojeS=h.getFullYear()+'-'+p2(h.getMonth()+1)+'-'+p2(h.getDate());
     for(var i=0;i<rL.length;i++){
         var t=rL[i], vP=valorRecebidoItem(t), valor=t.valor?parseFloat(t.valor):0;
         var pend=Math.max(valor-vP,0);
-        var atrasado=!!(t.prazoPagamento&&t.prazoPagamento<hojeS&&pend>0);
+        var atrasado=!!(t.prazoPagamento&&t.prazoPagamento<fimMes&&pend>0);
         var recebido=pend<=0&&vP>0;
         var cls=atrasado?'rec-row-atraso':(recebido?'rec-row-recebido':'rec-row-a-receber');
         var flag=atrasado?'<span class="rec-flag" title="NF em atraso">\u26A0<\/span>':'';
@@ -886,10 +916,13 @@ function renderTabelaRecebimentos(){
             '<td class="v-num">'+(vP>0?fmtBRL(vP):'-')+'</td>'+
             '</tr>';
     }
-    var rs=calcResumoRecebimentos(rL);
+    var rs=calcResumoRecebimentosAte(rL,fimMes);
+    var infoAcum='<div style="margin:.55rem 0 .9rem;color:#475569;font-size:.78rem;font-weight:500;">'+
+        'Exibindo '+rMes.length+' do m\u00eas e '+rAtrasos.length+' atraso(s) acumulado(s) de meses anteriores.'+
+        '</div>';
     recView.innerHTML='<div class="recebimentos-wrap"><table class="recebimentos-table"><thead><tr>'+
         '<th>N&ordm; NF</th><th>Data</th><th>Cliente</th><th>Servi&ccedil;o</th><th>N&ordm; PO</th><th>Valor a Pagar</th><th>Prazo para Pagamento</th><th>Data do Pagamento</th><th>Valor Pago</th>'+
-        '</tr></thead><tbody>'+linhas+'</tbody></table></div>'+
+        '</tr></thead><tbody>'+linhas+'</tbody></table></div>'+infoAcum+
         '<div class="rec-resumo-grid">'+
           '<div class="rec-resumo-card a-receber"><div class="lbl">Valor a Receber</div><div class="val">'+fmtBRL(rs.aReceber)+'</div></div>'+
           '<div class="rec-resumo-card recebido"><div class="lbl">J\u00e1 Recebido</div><div class="val">'+fmtBRL(rs.recebido)+'</div></div>'+
