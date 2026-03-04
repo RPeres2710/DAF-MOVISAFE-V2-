@@ -92,7 +92,7 @@ h1{font-size:1.75rem;color:#1e293b;font-family:'Outfit',sans-serif;font-weight:7
 .tarefa-item:hover{transform:translateY(-1px);box-shadow:0 6px 16px rgba(0,0,0,.1);}
 .tarefa-item.recebimento{background:linear-gradient(to right,#f0fdf4,#d1fae5);border-color:#22c55e;}
 .tarefa-item.pagamento{background:linear-gradient(to right,#fef2f2,#fecdd3);border-color:#ef4444;}
-.tarefa-item.concluido{opacity:.6;}
+.tarefa-item.concluido{opacity:1;}
 .tarefa-item.hoje{box-shadow:0 0 0 2px #a5b4fc;}
 .tarefa-content{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;}
 .tarefa-data{display:flex;align-items:center;gap:.5rem;min-width:115px;}
@@ -112,7 +112,7 @@ h1{font-size:1.75rem;color:#1e293b;font-family:'Outfit',sans-serif;font-weight:7
 .tarefa-item.pagamento .badge-valor{background:#fca5a5;color:#7f1d1d;}
 .badge-pago{background:#22c55e;color:white;}
 .badge-status{padding:.18rem .45rem;border-radius:.4rem;font-size:.72rem;font-weight:500;}
-.badge-status.pendente{background:#e2e8f0;color:#475569;}
+.badge-status.pendente{background:#fee2e2;color:#991b1b;}
 .badge-status.em_andamento{background:#fef3c7;color:#92400e;}
 .badge-status.concluido{background:#86efac;color:#166534;}
 .tarefa-acoes{display:flex;align-items:center;gap:.25rem;flex-shrink:0;}
@@ -300,7 +300,7 @@ h1{font-size:1.75rem;color:#1e293b;font-family:'Outfit',sans-serif;font-weight:7
         <div class="chart-container"><canvas id="chSt"></canvas></div>
       </div>
       <div class="card-chart">
-        <div class="card-chart-header"><div><div class="card-chart-title">Tipos de Tarefa</div><div class="card-chart-subtitle">Eventuais vs Outros</div></div></div>
+        <div class="card-chart-header"><div><div class="card-chart-title">Tipos de Tarefa</div><div class="card-chart-subtitle">Mensal vs Eventual</div></div></div>
         <div class="chart-container"><canvas id="chTp"></canvas></div>
       </div>
       <div class="card-chart" style="grid-column:1/-1;">
@@ -371,8 +371,8 @@ h1{font-size:1.75rem;color:#1e293b;font-family:'Outfit',sans-serif;font-weight:7
         <div class="form-group" style="margin-bottom:0;">
           <label class="form-label">Tipo</label>
           <select class="form-select" id="m-tipo">
+            <option value="mensal">Mensal</option>
             <option value="eventual">Eventual</option>
-            <option value="outro">Outro</option>
           </select>
         </div>
         <div class="form-group" style="margin-bottom:0;">
@@ -406,7 +406,7 @@ h1{font-size:1.75rem;color:#1e293b;font-family:'Outfit',sans-serif;font-weight:7
         </div>
       </div>
       <div id="campo-recebimento-extra" style="display:none;margin-top:1rem;">
-        <div class="form-group" style="margin-bottom:1rem;">
+        <div class="form-group" id="grupo-origem" style="margin-bottom:1rem;">
           <label class="form-label">Origem do Recebimento</label>
           <select class="form-select" id="m-origem" onchange="atualizarEstiloOrigem()">
             <option value="smart_cicc">&#128309; SMART CICC</option>
@@ -465,6 +465,10 @@ var tabAtual = 'calendario';
 var cRD, cSt, cTp, cTP, cFC;
 var chartsInit = false;
 var usuarioLogado = '';
+var TIPOS_RECEBIMENTO = [
+    {v:'mensal', l:'Mensal'},
+    {v:'eventual', l:'Eventual'}
+];
 
 function p2(n){ return String(n).padStart(2,'0'); }
 function fmtBRL(v){ return parseFloat(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
@@ -472,6 +476,9 @@ function fmtDataBR(d){
     if(!d) return '-';
     var p=String(d).split('-');
     return p.length===3?(p[2]+'/'+p[1]+'/'+p[0]):'-';
+}
+function labelTipoServico(tipo){
+    return tipo==='mensal'?'Mensal':'Eventual';
 }
 function valorRecebidoItem(t){
     if(t&&t.valorPago!==null&&t.valorPago!==undefined&&t.valorPago!==''){
@@ -493,6 +500,27 @@ function calcResumoRecebimentos(lista){
         if(t.prazoPagamento&&t.prazoPagamento<hojeS&&pend>0) atraso+=pend;
     }
     return {aReceber:aReceber, recebido:recebido, atraso:atraso};
+}
+function valorPagoItem(t){
+    if(t&&t.valorPago!==null&&t.valorPago!==undefined&&t.valorPago!==''){
+        var vp=parseFloat(t.valorPago);
+        if(!isNaN(vp)) return vp;
+    }
+    if(t&&t.status==='concluido'&&t.valor) return parseFloat(t.valor);
+    return 0;
+}
+function calcResumoPagamentos(lista){
+    var hoje=new Date();
+    var hojeS=hoje.getFullYear()+'-'+p2(hoje.getMonth()+1)+'-'+p2(hoje.getDate());
+    var aPagar=0, pago=0, atraso=0;
+    for(var i=0;i<lista.length;i++){
+        var t=lista[i], valor=t.valor?parseFloat(t.valor):0, pg=valorPagoItem(t);
+        if(valor>0) aPagar+=valor;
+        if(pg>0) pago+=pg;
+        var pend=Math.max(valor-pg,0);
+        if(t.prazoPagamento&&t.prazoPagamento<hojeS&&pend>0) atraso+=pend;
+    }
+    return {aPagar:aPagar, pago:pago, atraso:atraso};
 }
 function atualizarDataReferencia(){
     var h=new Date();
@@ -734,6 +762,17 @@ function atualizarEstiloOrigem(){
     s.style.color=mov?'#991b1b':'#1d4ed8';
     s.style.fontWeight='600';
 }
+function preencherOpcoesTipo(cat, selecionado){
+    var sel=document.getElementById('m-tipo');
+    if(!sel) return;
+    var tipos=TIPOS_RECEBIMENTO;
+    var html='';
+    for(var i=0;i<tipos.length;i++) html+='<option value="'+tipos[i].v+'">'+tipos[i].l+'</option>';
+    sel.innerHTML=html;
+    var existe=false;
+    for(var j=0;j<tipos.length;j++){ if(tipos[j].v===selecionado){ existe=true; break; } }
+    sel.value=existe?selecionado:tipos[0].v;
+}
 
 function renderCalendario(){
     var lista=document.getElementById('lista');
@@ -742,6 +781,12 @@ function renderCalendario(){
         lista.style.display='none';
         recView.style.display='block';
         renderTabelaRecebimentos();
+        return;
+    }
+    if(filtro==='pagamento'){
+        lista.style.display='none';
+        recView.style.display='block';
+        renderTabelaPagamentos();
         return;
     }
     lista.style.display='flex';
@@ -787,7 +832,6 @@ function renderCalendario(){
                   '<div class="tarefa-acoes">'+
                     '<button class="btn-ac btn-ac-edit" onclick="abrirModalEditar(\''+idT+'\')"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Editar</button>'+
                     '<button class="btn-ac btn-ac-dup" onclick="duplicar(\''+idT+'\')"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> Duplicar</button>'+
-                    '<button class="btn-ac btn-ac-del" onclick="excluirDireto(\''+idT+'\')"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> Excluir</button>'+
                   '</div>'+
                 '</div>';
                 lista.appendChild(el2);
@@ -820,7 +864,7 @@ function renderTabelaRecebimentos(){
             '<td>'+(t.numeroNotaFiscal||'-')+flag+'</td>'+
             '<td>'+fmtDataBR(t.data)+'</td>'+
             '<td>'+(t.cliente||'-')+'</td>'+
-            '<td>'+(t.descricao||'-')+'</td>'+
+            '<td>'+labelTipoServico(t.tipo)+'</td>'+
             '<td>'+(t.numeroPO||'-')+'</td>'+
             '<td class="v-num">'+(t.valor?fmtBRL(t.valor):'-')+'</td>'+
             '<td>'+(t.prazoPagamento?fmtDataBR(t.prazoPagamento):'-')+'</td>'+
@@ -910,11 +954,14 @@ async function duplicar(id){
 function togglePago(){
     var cat=document.getElementById('m-cat').value;
     var rec=cat==='recebimento';
+    var tipoAtual=document.getElementById('m-tipo').value;
     document.getElementById('campo-pago').style.display=rec?'block':'none';
-    document.getElementById('campo-recebimento-extra').style.display=rec?'block':'none';
-    document.getElementById('lbl-cliente').textContent=rec?'Cliente':'Cliente / Fornecedor';
-    document.getElementById('lbl-desc').textContent=rec?'Servi\u00e7o':'Descri\u00e7\u00e3o';
-    document.getElementById('lbl-valor').textContent=rec?'Valor a Pagar (R$)':'Valor (R$)';
+    document.getElementById('campo-recebimento-extra').style.display='block';
+    document.getElementById('grupo-origem').style.display=rec?'block':'none';
+    document.getElementById('lbl-cliente').textContent=rec?'Cliente':'Fornecedor';
+    document.getElementById('lbl-desc').textContent='Servi\u00e7o';
+    document.getElementById('lbl-valor').textContent='Valor a Pagar (R$)';
+    preencherOpcoesTipo(cat, tipoAtual);
     atualizarEstiloOrigem();
 }
 
@@ -974,6 +1021,14 @@ async function salvarTarefa(){
     var cat=document.getElementById('m-cat').value;
     var vlr=document.getElementById('m-valor').value;
     var vlrPago=document.getElementById('m-valor-pago').value;
+    var statusSel=document.getElementById('m-status').value;
+    var pagamentoConfirmado=cat==='recebimento'
+        ?(document.getElementById('m-pago').checked||(vlrPago&&parseFloat(vlrPago)>0))
+        :(vlrPago&&parseFloat(vlrPago)>0);
+    if(statusSel==='concluido'&&!pagamentoConfirmado){
+        toast('Concluido apenas quando estiver pago','erro');
+        return;
+    }
     var nova={
         id:selecionada?selecionada.id:Date.now(),
         data:document.getElementById('m-data').value,
@@ -981,15 +1036,15 @@ async function salvarTarefa(){
         descricao:document.getElementById('m-desc').value,
         numeroNotaFiscal:document.getElementById('m-nf').value.trim(),
         origemRecebimento:cat==='recebimento'?document.getElementById('m-origem').value:'smart_cicc',
-        numeroPO:cat==='recebimento'?document.getElementById('m-po').value.trim():'',
-        prazoPagamento:cat==='recebimento'?document.getElementById('m-prazo').value:'',
-        dataPagamento:cat==='recebimento'?document.getElementById('m-data-pag').value:'',
-        valorPago:cat==='recebimento'?(vlrPago?parseFloat(vlrPago):null):null,
+        numeroPO:document.getElementById('m-po').value.trim(),
+        prazoPagamento:document.getElementById('m-prazo').value,
+        dataPagamento:document.getElementById('m-data-pag').value,
+        valorPago:(vlrPago?parseFloat(vlrPago):null),
         tipo:document.getElementById('m-tipo').value,
         categoria:cat,
         valor:vlr?parseFloat(vlr):null,
-        status:document.getElementById('m-status').value,
-        pagamentoRecebido:cat==='recebimento'?(document.getElementById('m-pago').checked||(vlrPago&&parseFloat(vlrPago)>0)):false,
+        status:statusSel,
+        pagamentoRecebido:cat==='recebimento'?pagamentoConfirmado:false,
         _novo:!selecionada
     };
     var btn=document.getElementById('btn-salvar');
@@ -1024,14 +1079,14 @@ function exportarRelatorio(modo){
     var lR='';
     for(var r=0;r<rL.length;r++){
         var t=rL[r], vP=valorRecebidoItem(t);
-        lR+='<tr><td>'+(t.numeroNotaFiscal||'-')+'</td><td>'+fmtDataBR(t.data)+'</td><td>'+(t.cliente||'-')+'</td><td>'+(t.descricao||'-')+'</td><td>'+(t.numeroPO||'-')+'</td><td>'+(t.valor?fmtBRL(t.valor):'-')+'</td><td>'+(t.prazoPagamento?fmtDataBR(t.prazoPagamento):'-')+'</td><td>'+(t.dataPagamento?fmtDataBR(t.dataPagamento):'-')+'</td><td>'+(vP>0?fmtBRL(vP):'-')+'</td></tr>';
+        lR+='<tr><td>'+(t.numeroNotaFiscal||'-')+'</td><td>'+fmtDataBR(t.data)+'</td><td>'+(t.cliente||'-')+'</td><td>'+labelTipoServico(t.tipo)+'</td><td>'+(t.numeroPO||'-')+'</td><td>'+(t.valor?fmtBRL(t.valor):'-')+'</td><td>'+(t.prazoPagamento?fmtDataBR(t.prazoPagamento):'-')+'</td><td>'+(t.dataPagamento?fmtDataBR(t.dataPagamento):'-')+'</td><td>'+(vP>0?fmtBRL(vP):'-')+'</td></tr>';
     }
     var lP='';
     for(var p=0;p<pL.length;p++){var tp=pL[p];lP+='<tr><td>'+fmtDataBR(tp.data)+'</td><td>'+tp.cliente+'</td><td>'+(tp.numeroNotaFiscal||'-')+'</td><td>'+tp.descricao+'</td><td>'+(tp.valor?fmtBRL(tp.valor):'-')+'</td><td class="'+tp.status+'">'+sT(tp.status)+'</td></tr>';}
     var corS=saldo<0?'#7c2d12':'#1e3a8a',bgS=saldo<0?'#fff7ed':'#eff6ff',bdS=saldo<0?'#fdba74':'#93c5fd';
     var now=new Date(),gerado=now.toLocaleDateString('pt-BR')+' as '+now.toLocaleTimeString('pt-BR');
     var mes=MESES_PT[mesAtual],ano=anoAtual;
-    var css='*{margin:0;padding:0;box-sizing:border-box;}body{font-family:Segoe UI,sans-serif;background:#f8fafc;color:#1e293b;padding:2rem;}.capa{background:linear-gradient(135deg,#4f46e5,#2563eb);color:white;padding:2.5rem;border-radius:1rem;margin-bottom:2rem;display:flex;justify-content:space-between;align-items:center;}.capa h1{font-size:2rem;font-weight:800;}.rl{font-size:.75rem;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:.25rem;}.rv{font-size:1.6rem;font-weight:800;}.resumo{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:2rem;}.rc{padding:1.25rem;border-radius:.75rem;border:1px solid;}section{background:white;border-radius:.75rem;padding:1.5rem;margin-bottom:1.5rem;box-shadow:0 2px 8px rgba(0,0,0,.06);}h2{font-size:1.1rem;font-weight:700;margin-bottom:1rem;padding-bottom:.5rem;border-bottom:2px solid;}.h2r{border-color:#22c55e;color:#166534;}.h2p{border-color:#ef4444;color:#7f1d1d;}table{width:100%;border-collapse:collapse;font-size:.8rem;}th{background:#f1f5f9;text-align:left;padding:.55rem .75rem;font-weight:600;border-bottom:2px solid #e2e8f0;white-space:nowrap;}td{padding:.45rem .75rem;border-bottom:1px solid #f1f5f9;white-space:nowrap;}.pendente{color:#475569;background:#e2e8f0;padding:.15rem .4rem;border-radius:.3rem;}.em_andamento{color:#92400e;background:#fef3c7;padding:.15rem .4rem;border-radius:.3rem;}.concluido{color:#166534;background:#86efac;padding:.15rem .4rem;border-radius:.3rem;}.rod{text-align:center;color:#94a3b8;font-size:.78rem;margin-top:2rem;}.rr{display:grid;grid-template-columns:repeat(3,1fr);gap:.8rem;margin-top:1rem;}.rrc{padding:.8rem 1rem;border:1px solid;border-radius:.6rem;}.rrl{font-size:.7rem;font-weight:700;text-transform:uppercase;}.rrv{font-size:1.05rem;font-weight:800;margin-top:.2rem;}';
+    var css='*{margin:0;padding:0;box-sizing:border-box;}body{font-family:Segoe UI,sans-serif;background:#f8fafc;color:#1e293b;padding:2rem;}.capa{background:linear-gradient(135deg,#4f46e5,#2563eb);color:white;padding:2.5rem;border-radius:1rem;margin-bottom:2rem;display:flex;justify-content:space-between;align-items:center;}.capa h1{font-size:2rem;font-weight:800;}.rl{font-size:.75rem;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:.25rem;}.rv{font-size:1.6rem;font-weight:800;}.resumo{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:2rem;}.rc{padding:1.25rem;border-radius:.75rem;border:1px solid;}section{background:white;border-radius:.75rem;padding:1.5rem;margin-bottom:1.5rem;box-shadow:0 2px 8px rgba(0,0,0,.06);}h2{font-size:1.1rem;font-weight:700;margin-bottom:1rem;padding-bottom:.5rem;border-bottom:2px solid;}.h2r{border-color:#22c55e;color:#166534;}.h2p{border-color:#ef4444;color:#7f1d1d;}table{width:100%;border-collapse:collapse;font-size:.8rem;}th{background:#f1f5f9;text-align:left;padding:.55rem .75rem;font-weight:600;border-bottom:2px solid #e2e8f0;white-space:nowrap;}td{padding:.45rem .75rem;border-bottom:1px solid #f1f5f9;white-space:nowrap;}.pendente{color:#991b1b;background:#fee2e2;padding:.15rem .4rem;border-radius:.3rem;}.em_andamento{color:#92400e;background:#fef3c7;padding:.15rem .4rem;border-radius:.3rem;}.concluido{color:#166534;background:#86efac;padding:.15rem .4rem;border-radius:.3rem;}.rod{text-align:center;color:#94a3b8;font-size:.78rem;margin-top:2rem;}.rr{display:grid;grid-template-columns:repeat(3,1fr);gap:.8rem;margin-top:1rem;}.rrc{padding:.8rem 1rem;border:1px solid;border-radius:.6rem;}.rrl{font-size:.7rem;font-weight:700;text-transform:uppercase;}.rrv{font-size:1.05rem;font-weight:800;margin-top:.2rem;}';
     var tR=rL.length>0?'<table><thead><tr><th>N\u00ba NF</th><th>Data</th><th>Cliente</th><th>Servi\u00e7o</th><th>N\u00ba PO</th><th>Valor a Pagar</th><th>Prazo para Pagamento</th><th>Data do Pagamento</th><th>Valor Pago</th></tr></thead><tbody>'+lR+'</tbody></table><div class="rr"><div class="rrc" style="background:#eff6ff;border-color:#93c5fd;"><div class="rrl" style="color:#1e3a8a;">Valor a Receber</div><div class="rrv" style="color:#1e3a8a;">'+fmtBRL(rs.aReceber)+'</div></div><div class="rrc" style="background:#f0fdf4;border-color:#86efac;"><div class="rrl" style="color:#166534;">J\u00e1 Recebido</div><div class="rrv" style="color:#166534;">'+fmtBRL(rs.recebido)+'</div></div><div class="rrc" style="background:#fff7ed;border-color:#fdba74;"><div class="rrl" style="color:#9a3412;">Em Atraso</div><div class="rrv" style="color:#9a3412;">'+fmtBRL(rs.atraso)+'</div></div></div>':'<p style="color:#94a3b8;padding:1rem;text-align:center;">Nenhum recebimento.</p>';
     var tP=pL.length>0?'<table><thead><tr><th>Data</th><th>Fornecedor</th><th>NF</th><th>Descri\u00e7\u00e3o</th><th>Valor</th><th>Status</th></tr></thead'+'><tbody>'+lP+'</tbody></table>':'<p style="color:#94a3b8;padding:1rem;text-align:center;">Nenhum pagamento.</p>';
     var html='<!DOCTYPE html><html lang="pt-BR"><head'+'><meta charset="UTF-8"><title>Relat\u00f3rio '+mes+' '+ano+'</title><sty'+'le>'+css+'</sty'+'le></head'+'><body>'+
@@ -1064,6 +1119,46 @@ function exportarRelatorio(modo){
     toast('Relat\u00f3rio exportado!');
 }
 
+function renderTabelaPagamentos(){
+    var recView=document.getElementById('recebimentos-view');
+    var pL=todasDoMes().filter(filtraPorAba).sort(function(a,b){ return a.data.localeCompare(b.data); });
+    if(pL.length===0){
+        recView.innerHTML='<div class="mensagem-vazia"><p class="mensagem-vazia-text">Nenhum pagamento nesta aba</p><button class="btn btn-primary" onclick="abrirModalNovo(0)" style="margin-top:1rem;">Nova Tarefa</button></div>';
+        return;
+    }
+    var linhas='';
+    var h=new Date();
+    var hojeS=h.getFullYear()+'-'+p2(h.getMonth()+1)+'-'+p2(h.getDate());
+    for(var i=0;i<pL.length;i++){
+        var t=pL[i], vP=valorPagoItem(t), valor=t.valor?parseFloat(t.valor):0;
+        var pend=Math.max(valor-vP,0);
+        var atrasado=!!(t.prazoPagamento&&t.prazoPagamento<hojeS&&pend>0);
+        var pago=pend<=0&&vP>0;
+        var cls=atrasado?'rec-row-atraso':(pago?'rec-row-recebido':'rec-row-a-receber');
+        var flag=atrasado?'<span class="rec-flag" title="Conta em atraso">\u26A0<\/span>':'';
+        linhas+='<tr class="'+cls+'" onclick="abrirModalEditar(\''+t.id+'\')" style="cursor:pointer;">'+
+            '<td>'+(t.numeroNotaFiscal||'-')+flag+'</td>'+
+            '<td>'+fmtDataBR(t.data)+'</td>'+
+            '<td>'+(t.cliente||'-')+'</td>'+
+            '<td>'+labelTipoServico(t.tipo)+'</td>'+
+            '<td>'+(t.numeroPO||'-')+'</td>'+
+            '<td class="v-num">'+(t.valor?fmtBRL(t.valor):'-')+'</td>'+
+            '<td>'+(t.prazoPagamento?fmtDataBR(t.prazoPagamento):'-')+'</td>'+
+            '<td>'+(t.dataPagamento?fmtDataBR(t.dataPagamento):'-')+'</td>'+
+            '<td class="v-num">'+(vP>0?fmtBRL(vP):'-')+'</td>'+
+            '</tr>';
+    }
+    var rs=calcResumoPagamentos(pL);
+    recView.innerHTML='<div class="recebimentos-wrap"><table class="recebimentos-table"><thead><tr>'+
+        '<th>N&ordm; NF</th><th>Data</th><th>Cliente</th><th>Servi&ccedil;o</th><th>N&ordm; PO</th><th>Valor a Pagar</th><th>Prazo para Pagamento</th><th>Data do Pagamento</th><th>Valor Pago</th>'+
+        '</tr></thead><tbody>'+linhas+'</tbody></table></div>'+
+        '<div class="rec-resumo-grid">'+
+          '<div class="rec-resumo-card a-receber"><div class="lbl">Valor a Pagar</div><div class="val">'+fmtBRL(rs.aPagar)+'</div></div>'+
+          '<div class="rec-resumo-card recebido"><div class="lbl">J&aacute; Pago</div><div class="val">'+fmtBRL(rs.pago)+'</div></div>'+
+          '<div class="rec-resumo-card atraso"><div class="lbl">Em Atraso</div><div class="val">'+fmtBRL(rs.atraso)+'</div></div>'+
+        '</div>';
+}
+
 function imprimirRelatorio(){
     exportarRelatorio('imprimir');
 }
@@ -1078,7 +1173,7 @@ function inicializarCharts(){
     var e2=document.getElementById('chSt');
     if(e2) cSt=new Chart(e2,{type:'doughnut',data:{labels:['Pendente','Em Andamento','Conclu\u00eddo'],datasets:[{data:[0,0,0],backgroundColor:['rgba(226,232,240,.8)','rgba(254,243,199,.8)','rgba(134,239,172,.8)'],borderColor:['rgb(148,163,184)','rgb(251,191,36)','rgb(34,197,94)'],borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
     var e3=document.getElementById('chTp');
-    if(e3) cTp=new Chart(e3,{type:'pie',data:{labels:['Eventual','Outro'],datasets:[{data:[0,0],backgroundColor:['rgba(59,130,246,.8)','rgba(100,116,139,.8)'],borderColor:['rgb(59,130,246)','rgb(100,116,139)'],borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
+    if(e3) cTp=new Chart(e3,{type:'pie',data:{labels:['Mensal','Eventual'],datasets:[{data:[0,0],backgroundColor:['rgba(59,130,246,.8)','rgba(100,116,139,.8)'],borderColor:['rgb(59,130,246)','rgb(100,116,139)'],borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
     var e4=document.getElementById('chTP');
     if(e4) cTP=new Chart(e4,{type:'bar',data:{labels:[],datasets:[{label:'Valor',data:[],backgroundColor:'rgba(239,68,68,.8)',borderColor:'rgb(239,68,68)',borderWidth:2}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:fTX}}},scales:{x:{beginAtZero:true,ticks:{callback:fY}}}}});
     var e5=document.getElementById('chFC');
@@ -1099,7 +1194,7 @@ function atualizarDash(){
     document.getElementById('st-and').textContent=todas.filter(function(t){return t.status==='em_andamento';}).length;
     if(cRD){cRD.data.datasets[0].data=[rec,pag,rec-pag];cRD.update();}
     if(cSt){cSt.data.datasets[0].data=[todas.filter(function(t){return t.status==='pendente';}).length,todas.filter(function(t){return t.status==='em_andamento';}).length,todas.filter(function(t){return t.status==='concluido';}).length];cSt.update();}
-    if(cTp){cTp.data.datasets[0].data=[todas.filter(function(t){return t.tipo==='eventual';}).length,todas.filter(function(t){return t.tipo==='outro';}).length];cTp.update();}
+    if(cTp){cTp.data.datasets[0].data=[todas.filter(function(t){return t.tipo==='mensal';}).length,todas.filter(function(t){return t.tipo==='eventual';}).length];cTp.update();}
     var topPag=todas.filter(function(t){return t.categoria==='pagamento'&&t.valor;}).sort(function(a,b){return parseFloat(b.valor)-parseFloat(a.valor);}).slice(0,10);
     if(cTP){cTP.data.labels=topPag.map(function(t){return t.cliente.substring(0,25);});cTP.data.datasets[0].data=topPag.map(function(t){return parseFloat(t.valor);});cTP.update();}
     var dias=diasDoMes(),fluxo={};
@@ -1132,6 +1227,8 @@ document.addEventListener('DOMContentLoaded', function(){
 </script>
 </body>
 </html>
+
+
 
 
 
