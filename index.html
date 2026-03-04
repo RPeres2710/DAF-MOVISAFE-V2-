@@ -642,7 +642,7 @@ function dbParaLocal(r){
         prazoPagamento:   r.prazo_pagamento||r.prazoPagamento||'',
         dataPagamento:    r.data_pagamento||r.dataPagamento||'',
         valorPago:        (r.valor_pago!==null&&r.valor_pago!==undefined&&r.valor_pago!=='')?parseFloat(r.valor_pago):null,
-        tipo:             r.tipo||'eventual',
+        tipo:             (r.tipo==='outro'?'mensal':(r.tipo||'eventual')),
         categoria:        r.categoria,
         valor:            r.valor?parseFloat(r.valor):null,
         status:           r.status||'pendente',
@@ -661,6 +661,20 @@ async function salvarNoBanco(tarefa){
             if(!res.error && res.data){ tarefa.id=res.data.id; tarefa._novo=false; }
         } else {
             res = await sb.from('tarefas').update(row).eq('id',tarefa.id);
+        }
+
+        if(res.error){
+            var msgTry=(res.error.message||'').toLowerCase();
+            var erroTipo = msgTry.indexOf('constraint')>-1 && msgTry.indexOf('tipo')>-1;
+            if(erroTipo && tarefa.tipo==='mensal'){
+                row.tipo = (row.tipo==='mensal') ? 'outro' : 'mensal';
+                if(tarefa._novo){
+                    res = await sb.from('tarefas').insert(row).select().single();
+                    if(!res.error && res.data){ tarefa.id=res.data.id; tarefa._novo=false; }
+                } else {
+                    res = await sb.from('tarefas').update(row).eq('id',tarefa.id);
+                }
+            }
         }
 
         if(res.error){
@@ -899,334 +913,7 @@ function calcTotais(){
     var saldo=rec-pag;
     document.getElementById('tot-rec').textContent=fmtBRL(rec);
     document.getElementById('tot-pag').textContent=fmtBRL(pag);
-    document.getElementById('tot-saldo').textContent=fmtBRL(saldo);
-    document.getElementById('card-saldo').className='card-resumo saldo'+(saldo<0?' negativo':'');
-}
-
-function mesAnterior(){ if(mesAtual===0){mesAtual=11;anoAtual--;}else mesAtual--; renderizar(); }
-function proximoMes(){ if(mesAtual===11){mesAtual=0;anoAtual++;}else mesAtual++; renderizar(); }
-
-function trocarTab(tab){
-    tabAtual=tab;
-    document.getElementById('tbtn-dash').className='tab-btn'+(tab==='dashboard'?' active':'');
-    document.getElementById('tbtn-cal').className='tab-btn'+(tab==='calendario'?' active':'');
-    document.getElementById('tab-dashboard').className='tab-content'+(tab==='dashboard'?' active':'');
-    document.getElementById('tab-calendario').className='tab-content'+(tab==='calendario'?' active':'');
-    if(tab==='dashboard') atualizarDash();
-}
-
-function setFiltro(tipo){
-    filtro=tipo;
-    document.getElementById('f-todos').className='btn-filtro'+(tipo==='todos'?' active':'');
-    document.getElementById('f-rec-smart').className='btn-filtro smart'+(tipo==='recebimento_smart'?' active':'');
-    document.getElementById('f-rec-movi').className='btn-filtro movisafe'+(tipo==='recebimento_movisafe'?' active':'');
-    document.getElementById('f-pag').className='btn-filtro'+(tipo==='pagamento'?' active':'');
-    renderCalendario();
-}
-
-async function excluirDireto(id){
-    if(!confirm('Deseja realmente excluir esta tarefa?')) return;
-    mostrarLoading(true);
-    var ok=await excluirDoBanco(id);
-    if(ok){ tarefas=tarefas.filter(function(t){ return String(t.id)!==String(id); }); renderizar(); toast('Tarefa exclu\u00edda'); }
-    mostrarLoading(false);
-}
-
-async function duplicar(id){
-    var orig=null;
-    for(var i=0;i<tarefas.length;i++){ if(String(tarefas[i].id)===String(id)){orig=tarefas[i];break;} }
-    if(!orig) return;
-    var pp=orig.data.split('-');
-    var ano=parseInt(pp[0]),mes=parseInt(pp[1]),dia=parseInt(pp[2]);
-    mes++; if(mes>12){mes=1;ano++;}
-    dia=Math.min(dia,new Date(ano,mes,0).getDate());
-    var nd=ano+'-'+p2(mes)+'-'+p2(dia);
-    if(tarefas.some(function(t){ return t.data===nd&&t.cliente===orig.cliente&&t.descricao===orig.descricao; })){
-        toast('J\u00e1 existe no pr\u00f3ximo m\u00eas','azul'); return;
-    }
-    var nova={id:Date.now(),data:nd,cliente:orig.cliente,descricao:orig.descricao,numeroNotaFiscal:orig.numeroNotaFiscal||'',origemRecebimento:orig.origemRecebimento||'smart_cicc',numeroPO:orig.numeroPO||'',prazoPagamento:orig.prazoPagamento||'',dataPagamento:'',valorPago:null,tipo:orig.tipo,categoria:orig.categoria,valor:orig.valor,status:'pendente',pagamentoRecebido:false,_novo:true};
-    mostrarLoading(true);
-    var ok=await salvarNoBanco(nova);
-    if(ok){ tarefas.push(nova); renderizar(); toast('Duplicado para '+MESES_PT[mes-1]+'/'+ano); }
-    mostrarLoading(false);
-}
-
-function togglePago(){
-    var cat=document.getElementById('m-cat').value;
-    var rec=cat==='recebimento';
-    var tipoAtual=document.getElementById('m-tipo').value;
-    document.getElementById('campo-pago').style.display=rec?'block':'none';
-    document.getElementById('campo-recebimento-extra').style.display='block';
-    document.getElementById('grupo-origem').style.display=rec?'block':'none';
-    document.getElementById('lbl-cliente').textContent=rec?'Cliente':'Fornecedor';
-    document.getElementById('lbl-desc').textContent='Servi\u00e7o';
-    document.getElementById('lbl-valor').textContent='Valor a Pagar (R$)';
-    preencherOpcoesTipo(cat, tipoAtual);
-    atualizarEstiloOrigem();
-}
-
-function abrirModalNovo(dia){
-    selecionada=null;
-    document.getElementById('modal-titulo').textContent='Nova Tarefa';
-    document.getElementById('m-data').value=dia?anoAtual+'-'+p2(mesAtual+1)+'-'+p2(dia):'';
-    document.getElementById('m-cliente').value='';
-    document.getElementById('m-desc').value='';
-    document.getElementById('m-nf').value='';
-    document.getElementById('m-tipo').value='eventual';
-    document.getElementById('m-cat').value='recebimento';
-    document.getElementById('m-valor').value='';
-    document.getElementById('m-status').value='pendente';
-    document.getElementById('m-pago').checked=false;
-    document.getElementById('m-origem').value='smart_cicc';
-    document.getElementById('m-po').value='';
-    document.getElementById('m-prazo').value='';
-    document.getElementById('m-data-pag').value='';
-    document.getElementById('m-valor-pago').value='';
-    document.getElementById('btn-excluir').style.display='none';
-    togglePago();
-    document.getElementById('modal').className='modal active';
-}
-
-function abrirModalEditar(id){
-    var t=null;
-    for(var i=0;i<tarefas.length;i++){ if(String(tarefas[i].id)===String(id)){t=tarefas[i];break;} }
-    if(!t) return;
-    selecionada=t;
-    document.getElementById('modal-titulo').textContent='Editar Tarefa';
-    document.getElementById('m-data').value=t.data;
-    document.getElementById('m-cliente').value=t.cliente;
-    document.getElementById('m-desc').value=t.descricao;
-    document.getElementById('m-nf').value=t.numeroNotaFiscal||'';
-    document.getElementById('m-tipo').value=(t.tipo==='recorrente'?'eventual':t.tipo)||'eventual';
-    document.getElementById('m-cat').value=t.categoria;
-    document.getElementById('m-valor').value=t.valor||'';
-    document.getElementById('m-status').value=t.status;
-    document.getElementById('m-pago').checked=t.pagamentoRecebido||false;
-    document.getElementById('m-origem').value=t.origemRecebimento||'smart_cicc';
-    document.getElementById('m-po').value=t.numeroPO||'';
-    document.getElementById('m-prazo').value=t.prazoPagamento||'';
-    document.getElementById('m-data-pag').value=t.dataPagamento||'';
-    document.getElementById('m-valor-pago').value=t.valorPago!==null&&t.valorPago!==undefined?t.valorPago:'';
-    document.getElementById('btn-excluir').style.display='inline-flex';
-    togglePago();
-    document.getElementById('modal').className='modal active';
-}
-
-function fecharModal(){
-    document.getElementById('modal').className='modal';
-    selecionada=null;
-}
-
-async function salvarTarefa(){
-    var cat=document.getElementById('m-cat').value;
-    var vlr=document.getElementById('m-valor').value;
-    var vlrPago=document.getElementById('m-valor-pago').value;
-    var statusSel=document.getElementById('m-status').value;
-    var pagamentoConfirmado=cat==='recebimento'
-        ?(document.getElementById('m-pago').checked||(vlrPago&&parseFloat(vlrPago)>0))
-        :(vlrPago&&parseFloat(vlrPago)>0);
-    if(statusSel==='concluido'&&!pagamentoConfirmado){
-        toast('Concluido apenas quando estiver pago','erro');
-        return;
-    }
-    var nova={
-        id:selecionada?selecionada.id:Date.now(),
-        data:document.getElementById('m-data').value,
-        cliente:document.getElementById('m-cliente').value,
-        descricao:document.getElementById('m-desc').value,
-        numeroNotaFiscal:document.getElementById('m-nf').value.trim(),
-        origemRecebimento:cat==='recebimento'?document.getElementById('m-origem').value:'smart_cicc',
-        numeroPO:document.getElementById('m-po').value.trim(),
-        prazoPagamento:document.getElementById('m-prazo').value,
-        dataPagamento:document.getElementById('m-data-pag').value,
-        valorPago:(vlrPago?parseFloat(vlrPago):null),
-        tipo:document.getElementById('m-tipo').value,
-        categoria:cat,
-        valor:vlr?parseFloat(vlr):null,
-        status:statusSel,
-        pagamentoRecebido:cat==='recebimento'?pagamentoConfirmado:false,
-        _novo:!selecionada
-    };
-    var btn=document.getElementById('btn-salvar');
-    btn.disabled=true; btn.textContent='Salvando...';
-    mostrarLoading(true);
-    var ok=await salvarNoBanco(nova);
-    if(ok){
-        if(selecionada){ for(var i=0;i<tarefas.length;i++){ if(String(tarefas[i].id)===String(selecionada.id)){tarefas[i]=nova;break;} } toast('Tarefa atualizada'); }
-        else { tarefas.push(nova); toast('Tarefa criada'); }
-        fecharModal(); renderizar();
-    }
-    btn.disabled=false; btn.textContent='Salvar';
-    mostrarLoading(false);
-}
-
-async function excluirModal(){
-    if(!selecionada||!confirm('Deseja realmente excluir esta tarefa?')) return;
-    var id=selecionada.id;
-    mostrarLoading(true);
-    var ok=await excluirDoBanco(id);
-    if(ok){ tarefas=tarefas.filter(function(t){ return String(t.id)!==String(id); }); fecharModal(); renderizar(); toast('Tarefa exclu\u00edda'); }
-    mostrarLoading(false);
-}
-
-function exportarRelatorio(modo){
-    var todas=todasDoMes(),pag=0;
-    for(var i=0;i<todas.length;i++){ if(todas[i].categoria==='pagamento'&&todas[i].valor) pag+=parseFloat(todas[i].valor); }
-    var rL=todas.filter(function(t){return t.categoria==='recebimento';}).sort(function(a,b){return a.data.localeCompare(b.data);});
-    var pL=todas.filter(function(t){return t.categoria==='pagamento';}).sort(function(a,b){return a.data.localeCompare(b.data);});
-    var rs=calcResumoRecebimentos(rL), rec=rs.recebido, saldo=rec-pag;
-    function sT(s){return s==='concluido'?'Conclu\u00eddo':s==='em_andamento'?'Em Andamento':'Pendente';}
-    var lR='';
-    for(var r=0;r<rL.length;r++){
-        var t=rL[r], vP=valorRecebidoItem(t);
-        lR+='<tr><td>'+(t.numeroNotaFiscal||'-')+'</td><td>'+fmtDataBR(t.data)+'</td><td>'+(t.cliente||'-')+'</td><td>'+labelTipoServico(t.tipo)+'</td><td>'+(t.numeroPO||'-')+'</td><td>'+(t.valor?fmtBRL(t.valor):'-')+'</td><td>'+(t.prazoPagamento?fmtDataBR(t.prazoPagamento):'-')+'</td><td>'+(t.dataPagamento?fmtDataBR(t.dataPagamento):'-')+'</td><td>'+(vP>0?fmtBRL(vP):'-')+'</td></tr>';
-    }
-    var lP='';
-    for(var p=0;p<pL.length;p++){var tp=pL[p];lP+='<tr><td>'+fmtDataBR(tp.data)+'</td><td>'+tp.cliente+'</td><td>'+(tp.numeroNotaFiscal||'-')+'</td><td>'+tp.descricao+'</td><td>'+(tp.valor?fmtBRL(tp.valor):'-')+'</td><td class="'+tp.status+'">'+sT(tp.status)+'</td></tr>';}
-    var corS=saldo<0?'#7c2d12':'#1e3a8a',bgS=saldo<0?'#fff7ed':'#eff6ff',bdS=saldo<0?'#fdba74':'#93c5fd';
-    var now=new Date(),gerado=now.toLocaleDateString('pt-BR')+' as '+now.toLocaleTimeString('pt-BR');
-    var mes=MESES_PT[mesAtual],ano=anoAtual;
-    var css='*{margin:0;padding:0;box-sizing:border-box;}body{font-family:Segoe UI,sans-serif;background:#f8fafc;color:#1e293b;padding:2rem;}.capa{background:linear-gradient(135deg,#4f46e5,#2563eb);color:white;padding:2.5rem;border-radius:1rem;margin-bottom:2rem;display:flex;justify-content:space-between;align-items:center;}.capa h1{font-size:2rem;font-weight:800;}.rl{font-size:.75rem;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:.25rem;}.rv{font-size:1.6rem;font-weight:800;}.resumo{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:2rem;}.rc{padding:1.25rem;border-radius:.75rem;border:1px solid;}section{background:white;border-radius:.75rem;padding:1.5rem;margin-bottom:1.5rem;box-shadow:0 2px 8px rgba(0,0,0,.06);}h2{font-size:1.1rem;font-weight:700;margin-bottom:1rem;padding-bottom:.5rem;border-bottom:2px solid;}.h2r{border-color:#22c55e;color:#166534;}.h2p{border-color:#ef4444;color:#7f1d1d;}table{width:100%;border-collapse:collapse;font-size:.8rem;}th{background:#f1f5f9;text-align:left;padding:.55rem .75rem;font-weight:600;border-bottom:2px solid #e2e8f0;white-space:nowrap;}td{padding:.45rem .75rem;border-bottom:1px solid #f1f5f9;white-space:nowrap;}.pendente{color:#991b1b;background:#fee2e2;padding:.15rem .4rem;border-radius:.3rem;}.em_andamento{color:#92400e;background:#fef3c7;padding:.15rem .4rem;border-radius:.3rem;}.concluido{color:#166534;background:#86efac;padding:.15rem .4rem;border-radius:.3rem;}.rod{text-align:center;color:#94a3b8;font-size:.78rem;margin-top:2rem;}.rr{display:grid;grid-template-columns:repeat(3,1fr);gap:.8rem;margin-top:1rem;}.rrc{padding:.8rem 1rem;border:1px solid;border-radius:.6rem;}.rrl{font-size:.7rem;font-weight:700;text-transform:uppercase;}.rrv{font-size:1.05rem;font-weight:800;margin-top:.2rem;}';
-    var tR=rL.length>0?'<table><thead><tr><th>N\u00ba NF</th><th>Data</th><th>Cliente</th><th>Servi\u00e7o</th><th>N\u00ba PO</th><th>Valor a Pagar</th><th>Prazo para Pagamento</th><th>Data do Pagamento</th><th>Valor Pago</th></tr></thead><tbody>'+lR+'</tbody></table><div class="rr"><div class="rrc" style="background:#eff6ff;border-color:#93c5fd;"><div class="rrl" style="color:#1e3a8a;">Valor a Receber</div><div class="rrv" style="color:#1e3a8a;">'+fmtBRL(rs.aReceber)+'</div></div><div class="rrc" style="background:#f0fdf4;border-color:#86efac;"><div class="rrl" style="color:#166534;">J\u00e1 Recebido</div><div class="rrv" style="color:#166534;">'+fmtBRL(rs.recebido)+'</div></div><div class="rrc" style="background:#fff7ed;border-color:#fdba74;"><div class="rrl" style="color:#9a3412;">Em Atraso</div><div class="rrv" style="color:#9a3412;">'+fmtBRL(rs.atraso)+'</div></div></div>':'<p style="color:#94a3b8;padding:1rem;text-align:center;">Nenhum recebimento.</p>';
-    var tP=pL.length>0?'<table><thead><tr><th>Data</th><th>Fornecedor</th><th>NF</th><th>Descri\u00e7\u00e3o</th><th>Valor</th><th>Status</th></tr></thead'+'><tbody>'+lP+'</tbody></table>':'<p style="color:#94a3b8;padding:1rem;text-align:center;">Nenhum pagamento.</p>';
-    var html='<!DOCTYPE html><html lang="pt-BR"><head'+'><meta charset="UTF-8"><title>Relat\u00f3rio '+mes+' '+ano+'</title><sty'+'le>'+css+'</sty'+'le></head'+'><body>'+
-        '<div class="capa"><div><h1>Relat\u00f3rio Mensal</h1><p>'+mes+' / '+ano+' &middot; DAF Movisafe</p><p style="margin-top:.5rem;font-size:.8rem;opacity:.7;">Gerado em '+gerado+'</p></div><div style="font-size:3rem;">&#128202;</div></div>'+
-        '<div class="resumo"><div class="rc" style="background:#f0fdf4;border-color:#86efac;"><div class="rl">Recebido</div><div class="rv" style="color:#166534;">'+fmtBRL(rec)+'</div></div>'+
-        '<div class="rc" style="background:#fef2f2;border-color:#fca5a5;"><div class="rl">Pagamentos</div><div class="rv" style="color:#7f1d1d;">'+fmtBRL(pag)+'</div></div>'+
-        '<div class="rc" style="background:'+bgS+';border-color:'+bdS+';"><div class="rl">Saldo</div><div class="rv" style="color:'+corS+';">'+fmtBRL(saldo)+'</div></div></div>'+
-        '<section><h2 class="h2r">&#9679; Recebimentos ('+rL.length+')</h2>'+tR+'</section>'+
-        '<section><h2 class="h2p">&#9679; Pagamentos ('+pL.length+')</h2>'+tP+'</section>'+
-        '<div class="rod">Sistema DAF &ndash; Movisafe</div></body'+'></html'+'>';
-    if(modo==='imprimir'){
-        var w=window.open('','_blank');
-        if(!w){
-            toast('Libere pop-ups para imprimir/salvar PDF','erro');
-            return;
-        }
-        w.document.open();
-        w.document.write(html);
-        w.document.close();
-        w.focus();
-        setTimeout(function(){ w.print(); },350);
-        return;
-    }
-    var blob=new Blob([html],{type:'text/html;charset=utf-8'});
-    var url=URL.createObjectURL(blob);
-    var a=document.createElement('a');
-    a.href=url; a.download='Relatorio_DAF_'+mes+'_'+ano+'.html';
-    document.body.appendChild(a); a.click();
-    setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(url);},100);
-    toast('Relat\u00f3rio exportado!');
-}
-
-function renderTabelaPagamentos(){
-    var recView=document.getElementById('recebimentos-view');
-    var pL=todasDoMes().filter(filtraPorAba).sort(function(a,b){ return a.data.localeCompare(b.data); });
-    if(pL.length===0){
-        recView.innerHTML='<div class="mensagem-vazia"><p class="mensagem-vazia-text">Nenhum pagamento nesta aba</p><button class="btn btn-primary" onclick="abrirModalNovo(0)" style="margin-top:1rem;">Nova Tarefa</button></div>';
-        return;
-    }
-    var linhas='';
-    var h=new Date();
-    var hojeS=h.getFullYear()+'-'+p2(h.getMonth()+1)+'-'+p2(h.getDate());
-    for(var i=0;i<pL.length;i++){
-        var t=pL[i], vP=valorPagoItem(t), valor=t.valor?parseFloat(t.valor):0;
-        var pend=Math.max(valor-vP,0);
-        var atrasado=!!(t.prazoPagamento&&t.prazoPagamento<hojeS&&pend>0);
-        var pago=pend<=0&&vP>0;
-        var cls=atrasado?'rec-row-atraso':(pago?'rec-row-recebido':'rec-row-a-receber');
-        var flag=atrasado?'<span class="rec-flag" title="Conta em atraso">\u26A0<\/span>':'';
-        linhas+='<tr class="'+cls+'" onclick="abrirModalEditar(\''+t.id+'\')" style="cursor:pointer;">'+
-            '<td>'+(t.numeroNotaFiscal||'-')+flag+'</td>'+
-            '<td>'+fmtDataBR(t.data)+'</td>'+
-            '<td>'+(t.cliente||'-')+'</td>'+
-            '<td>'+labelTipoServico(t.tipo)+'</td>'+
-            '<td>'+(t.numeroPO||'-')+'</td>'+
-            '<td class="v-num">'+(t.valor?fmtBRL(t.valor):'-')+'</td>'+
-            '<td>'+(t.prazoPagamento?fmtDataBR(t.prazoPagamento):'-')+'</td>'+
-            '<td>'+(t.dataPagamento?fmtDataBR(t.dataPagamento):'-')+'</td>'+
-            '<td class="v-num">'+(vP>0?fmtBRL(vP):'-')+'</td>'+
-            '</tr>';
-    }
-    var rs=calcResumoPagamentos(pL);
-    recView.innerHTML='<div class="recebimentos-wrap"><table class="recebimentos-table"><thead><tr>'+
-        '<th>N&ordm; NF</th><th>Data</th><th>Cliente</th><th>Servi&ccedil;o</th><th>N&ordm; PO</th><th>Valor a Pagar</th><th>Prazo para Pagamento</th><th>Data do Pagamento</th><th>Valor Pago</th>'+
-        '</tr></thead><tbody>'+linhas+'</tbody></table></div>'+
-        '<div class="rec-resumo-grid">'+
-          '<div class="rec-resumo-card a-receber"><div class="lbl">Valor a Pagar</div><div class="val">'+fmtBRL(rs.aPagar)+'</div></div>'+
-          '<div class="rec-resumo-card recebido"><div class="lbl">J&aacute; Pago</div><div class="val">'+fmtBRL(rs.pago)+'</div></div>'+
-          '<div class="rec-resumo-card atraso"><div class="lbl">Em Atraso</div><div class="val">'+fmtBRL(rs.atraso)+'</div></div>'+
-        '</div>';
-}
-
-function imprimirRelatorio(){
-    exportarRelatorio('imprimir');
-}
-
-function inicializarCharts(){
-    function fY(v){return 'R$ '+v.toLocaleString('pt-BR');}
-    function fT(c){return 'R$ '+c.parsed.y.toLocaleString('pt-BR',{minimumFractionDigits:2});}
-    function fTX(c){return 'R$ '+c.parsed.x.toLocaleString('pt-BR',{minimumFractionDigits:2});}
-    function fTL(c){return c.dataset.label+': R$ '+c.parsed.y.toLocaleString('pt-BR',{minimumFractionDigits:2});}
-    var e1=document.getElementById('chRD');
-    if(e1) cRD=new Chart(e1,{type:'bar',data:{labels:['Recebimentos','Pagamentos','Saldo'],datasets:[{data:[0,0,0],backgroundColor:['rgba(34,197,94,.8)','rgba(239,68,68,.8)','rgba(59,130,246,.8)'],borderColor:['rgb(34,197,94)','rgb(239,68,68)','rgb(59,130,246)'],borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:fT}}},scales:{y:{beginAtZero:true,ticks:{callback:fY}}}}});
-    var e2=document.getElementById('chSt');
-    if(e2) cSt=new Chart(e2,{type:'doughnut',data:{labels:['Pendente','Em Andamento','Conclu\u00eddo'],datasets:[{data:[0,0,0],backgroundColor:['rgba(226,232,240,.8)','rgba(254,243,199,.8)','rgba(134,239,172,.8)'],borderColor:['rgb(148,163,184)','rgb(251,191,36)','rgb(34,197,94)'],borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
-    var e3=document.getElementById('chTp');
-    if(e3) cTp=new Chart(e3,{type:'pie',data:{labels:['Mensal','Eventual'],datasets:[{data:[0,0],backgroundColor:['rgba(59,130,246,.8)','rgba(100,116,139,.8)'],borderColor:['rgb(59,130,246)','rgb(100,116,139)'],borderWidth:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
-    var e4=document.getElementById('chTP');
-    if(e4) cTP=new Chart(e4,{type:'bar',data:{labels:[],datasets:[{label:'Valor',data:[],backgroundColor:'rgba(239,68,68,.8)',borderColor:'rgb(239,68,68)',borderWidth:2}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:fTX}}},scales:{x:{beginAtZero:true,ticks:{callback:fY}}}}});
-    var e5=document.getElementById('chFC');
-    if(e5) cFC=new Chart(e5,{type:'line',data:{labels:[],datasets:[{label:'Recebimentos',data:[],borderColor:'rgb(34,197,94)',backgroundColor:'rgba(34,197,94,.1)',tension:.4,fill:true},{label:'Pagamentos',data:[],borderColor:'rgb(239,68,68)',backgroundColor:'rgba(239,68,68,.1)',tension:.4,fill:true}]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{tooltip:{callbacks:{label:fTL}}},scales:{y:{beginAtZero:true,ticks:{callback:fY}}}}});
-    atualizarDash();
-}
-
-function atualizarDash(){
-    var todas=todasDoMes(),rec=0,pag=0;
-    for(var i=0;i<todas.length;i++){
-        var t=todas[i];
-        if(t.categoria==='recebimento') rec+=valorRecebidoItem(t);
-        if(t.categoria==='pagamento'&&t.valor) pag+=parseFloat(t.valor);
-    }
-    document.getElementById('st-total').textContent=todas.length;
-    document.getElementById('st-conc').textContent=todas.filter(function(t){return t.status==='concluido';}).length;
-    document.getElementById('st-pend').textContent=todas.filter(function(t){return t.status==='pendente';}).length;
-    document.getElementById('st-and').textContent=todas.filter(function(t){return t.status==='em_andamento';}).length;
-    if(cRD){cRD.data.datasets[0].data=[rec,pag,rec-pag];cRD.update();}
-    if(cSt){cSt.data.datasets[0].data=[todas.filter(function(t){return t.status==='pendente';}).length,todas.filter(function(t){return t.status==='em_andamento';}).length,todas.filter(function(t){return t.status==='concluido';}).length];cSt.update();}
-    if(cTp){cTp.data.datasets[0].data=[todas.filter(function(t){return t.tipo==='mensal';}).length,todas.filter(function(t){return t.tipo==='eventual';}).length];cTp.update();}
-    var topPag=todas.filter(function(t){return t.categoria==='pagamento'&&t.valor;}).sort(function(a,b){return parseFloat(b.valor)-parseFloat(a.valor);}).slice(0,10);
-    if(cTP){cTP.data.labels=topPag.map(function(t){return t.cliente.substring(0,25);});cTP.data.datasets[0].data=topPag.map(function(t){return parseFloat(t.valor);});cTP.update();}
-    var dias=diasDoMes(),fluxo={};
-    for(var d=0;d<dias.length;d++) fluxo[p2(dias[d])]={rec:0,pag:0};
-    for(var m=0;m<todas.length;m++){
-        var tx=todas[m];
-        var dd=tx.data.split('-')[2];
-        if(fluxo[dd]){
-            if(tx.categoria==='recebimento') fluxo[dd].rec+=valorRecebidoItem(tx);
-            else if(tx.categoria==='pagamento'&&tx.valor) fluxo[dd].pag+=parseFloat(tx.valor);
-        }
-    }
-    if(cFC){var keys=Object.keys(fluxo);cFC.data.labels=keys;cFC.data.datasets[0].data=keys.map(function(k){return fluxo[k].rec;});cFC.data.datasets[1].data=keys.map(function(k){return fluxo[k].pag;});cFC.update();}
-}
-
-document.addEventListener('DOMContentLoaded', function(){
-    ['login-usuario','login-senha'].forEach(function(id){
-        var input=document.getElementById(id);
-        if(input){
-            input.addEventListener('keydown', function(ev){
-                if(ev.key==='Enter'){
-                    ev.preventDefault();
-                    fazerLogin();
-                }
-            });
-        }
-    });
-    inicializar();
-});
-</script>
-</body>
-</html>
+  
 
 
 
